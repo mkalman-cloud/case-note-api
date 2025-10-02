@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "openai": "^4.52.0"
+  },
+  "scripts": {
+    "start": "node api/casenote.js"
   }
 }
