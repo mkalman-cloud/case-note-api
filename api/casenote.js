@@ -1,68 +1,45 @@
-// Vercel Serverless Function: POST /api/casenote
 import OpenAI from "openai";
 
-const apiKey = process.env.OPENAI_API_KEY;
-const openai = apiKey ? new OpenAI({ apiKey }) : null;
-
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Only POST allowed" });
+  }
+
   try {
-    cors(res);
+    const { transcript, client: clientName } = req.body;
 
-    if (req.method === "OPTIONS") return res.status(200).end();
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Use POST /api/casenote" });
+    if (!transcript) {
+      return res.status(400).json({ error: "Transcript missing" });
     }
 
-    if (!openai) {
-      return res.status(500).json({ error: "OPENAI_API_KEY missing on server" });
-    }
+    const prompt = `
+You are a youth development coach writing case notes.
 
-    // ---- Safe body parsing (handles string/empty bodies) ----
-    let body = req.body;
-    if (typeof body === "string" && body.trim().length) {
-      try { body = JSON.parse(body); } catch (_) {}
-    }
-    if (!body || typeof body !== "object") body = {};
+Format:
+Headline: COACHING
+YDC involved [client] in a [activity] to [purpose]...
+Include 2–4 concise sentences about observations or client progress.
+Next Step: [clear, practical next action].
 
-    const { transcript = "", client = "" } = body;
-    if (!transcript || !transcript.trim()) {
-      return res.status(400).json({ error: "Missing transcript" });
-    }
+Transcript: ${transcript}
+Client: ${clientName || "N/A"}
+`;
 
-    const system = `
-You write youth development case notes in this style:
-- Begin with "Headline: COACHING"
-- Next: "YDC involved [client] in a [activity] to [purpose]..."
-- Add 2–4 concise sentences of observations (affect, needs, shifts).
-- Add "Outcomes:" line if relevant.
-- Always finish with "Next step:" line.
-Professional, factual, non-judgemental.
-`.trim();
-
-    const clientName = client || "the young person";
-    const user = `Transcript:\n${transcript}\nClient: ${clientName}`;
-
-    const completion = await openai.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ]
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const note = completion.choices?.[0]?.message?.content?.trim() || "";
-    if (!note) return res.status(502).json({ error: "Empty response from model" });
-
-    return res.status(200).json({ note });
+    res.status(200).json({
+      note: completion.choices[0].message.content,
+    });
   } catch (err) {
-    console.error("casenote error:", err);
-    return res.status(500).json({ error: err?.message || "Server error" });
+    console.error("Error in casenote API:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 }
+
